@@ -30,14 +30,18 @@ export function TransactionDialog({ goalId, goalTitle }: TransactionDialogProps)
   const [note, setNote] = useState("")
   const [type, setType] = useState<"deposit" | "withdrawal">("deposit")
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const amountNum = Number.parseFloat(amount)
     if (amountNum > 0) {
-      addTransaction(goalId, amountNum, type, note)
-      setAmount("")
-      setNote("")
-      setOpen(false)
+      try {
+        await addTransaction(goalId, amountNum, type, note)
+        setAmount("")
+        setNote("")
+        setOpen(false)
+      } catch (error) {
+        console.error("Failed to add transaction:", error)
+      }
     }
   }
 

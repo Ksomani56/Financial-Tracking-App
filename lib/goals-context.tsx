@@ -31,7 +31,7 @@ export interface Goal {
 interface GoalsContextType {
   goals: Goal[]
   addGoal: (goal: Omit<Goal, "id" | "current" | "createdAt" | "transactions">) => void
-  addTransaction: (goalId: number, amount: number, type: "deposit" | "withdrawal", note?: string) => void
+  addTransaction: (goalId: number, amount: number, type: "deposit" | "withdrawal", note?: string) => Promise<void>
   getTopUrgentGoals: () => Goal[]
   searchQuery: string
   setSearchQuery: (query: string) => void
@@ -124,19 +124,53 @@ export function GoalsProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const addTransaction = (goalId: number, amount: number, type: "deposit" | "withdrawal", note?: string) => {
-    const tx: Transaction = { id: `t${Date.now()}`, amount, type, date: new Date().toISOString(), note }
-    setGoals((prev) =>
-      prev.map((g) =>
-        g.id === goalId
-          ? {
-              ...g,
-              current: Math.max(0, Math.min(type === "deposit" ? g.current + amount : g.current - amount, g.target)),
-              transactions: [...g.transactions, tx],
-            }
-          : g,
-      ),
-    )
+  const addTransaction = async (goalId: number, amount: number, type: "deposit" | "withdrawal", note?: string) => {
+    try {
+      const tx: Transaction = { id: `t${Date.now()}`, amount, type, date: new Date().toISOString(), note }
+      
+      // Update local state immediately for UI responsiveness
+      setGoals((prev) =>
+        prev.map((g) =>
+          g.id === goalId
+            ? {
+                ...g,
+                current: Math.max(0, Math.min(type === "deposit" ? g.current + amount : g.current - amount, g.target)),
+                transactions: [...g.transactions, tx],
+              }
+            : g,
+        ),
+      )
+
+      // Save to Firestore
+      const db = await getDb()
+      if (!db) {
+        console.error("Firebase not initialized - transaction not saved")
+        return
+      }
+
+      const { doc, updateDoc, arrayUnion } = await import("firebase/firestore")
+      
+      // Find the goal document ID in Firestore
+      const goal = goals.find(g => g.id === goalId)
+      if (!goal) {
+        console.error("Goal not found:", goalId)
+        return
+      }
+
+      // Update the goal document with the new transaction
+      const goalRef = doc(db, "goals", goal.id.toString())
+      await updateDoc(goalRef, {
+        current: Math.max(0, Math.min(type === "deposit" ? goal.current + amount : goal.current - amount, goal.target)),
+        transactions: arrayUnion(tx)
+      })
+
+      console.log("Transaction saved to Firestore:", tx)
+      push({ type: "success", title: "Transaction added", message: `${type === "deposit" ? "Deposited" : "Withdrew"} ₹${amount}` })
+      
+    } catch (error) {
+      console.error("Error adding transaction:", error)
+      push({ type: "error", title: "Transaction failed", message: "Could not save transaction" })
+    }
   }
 
   const calculateUrgency = (goal: Goal): number => {
